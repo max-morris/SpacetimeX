@@ -258,16 +258,33 @@ after the RHS routine.
 
 The call signature is:
 \begin{verbatim}
+template <typename T>
 void NewRadX_Apply                               \
         (const cGH *restrict const cctkGH,       \
-         const Loop::GF3D2<const CCTK_REAL> var, \
-         Loop::GF3D2<CCTK_REAL> rhs,             \
+         const Loop::GF3D2<const T> var,         \
+         Loop::GF3D2<T> rhs,                     \
          CCTK_REAL var0,                         \
          CCTK_REAL v0,                           \
          CCTK_REAL radpower)
 \end{verbatim}
 where \code{var0} corresponds to $f_0$, \code{v0} is $v$ and
 \code{radpower} is the assumed decay exponent $n$.
+
+\subsection{Mixed Precision}
+\code{T} is the floating point type of the state variable and its RHS, which
+need not be \code{CCTK\_REAL}: the routine is instantiated for
+\code{CCTK\_REAL8}, \code{CCTK\_REAL4} and \code{CCTK\_REAL2} (the last two where
+the flesh provides them), so evolution thorns whose grid functions are declared
+at a reduced width can use it unchanged.  The same holds for the multipatch
+overload, whose coordinate and Jacobian grid functions carry a second,
+independent type parameter.  \code{var0}, \code{v0} and \code{radpower} are
+always \code{CCTK\_REAL}, and so is all of the arithmetic: the grid function
+values are widened to \code{CCTK\_REAL} on read and only the value finally
+stored into \code{rhs} is narrowed back, both because the finite differences
+below would lose most of their significance if accumulated at binary16 and
+because everything they are combined with (the coordinates and $\Delta x$) is
+\code{CCTK\_REAL} anyway.  For \code{CCTK\_REAL} grid functions this is the same
+computation as before, so existing callers are unaffected.
 
 \subsection{Obtaining This Thorn}
 The thorn is part of the \code{SpacetimeX} arrangement available on
