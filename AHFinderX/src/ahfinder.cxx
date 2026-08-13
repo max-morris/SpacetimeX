@@ -13,6 +13,7 @@
 
 #include <ssht/ssht.h>
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -202,14 +203,31 @@ metric_t<T> interpolate_metric(const cGH *const cctkGH,
   const int kzz_ind = CCTK_VarIndex("ADMBaseX::kzz");
 
   constexpr int nvars = 6 * (1 + 3 + 1);
-  const array<CCTK_INT, nvars> varinds{
+  // BUILD FIX: five names in this file were written unqualified -- the three
+  // `std::array` declarations below, the `std::clamp` in step(), and the
+  // `std::min` in solve(). The corresponding headers are all included, but
+  // nothing in this file's include chain injects `using namespace std`, and the
+  // one namespace that is opened (`using namespace Arith`) declares no `clamp`
+  // or `min`. So none of the five resolve and AHFinderX failed to compile at
+  // all (GCC 14.2). Qualifying them is the entire fix -- no semantics change,
+  // since the unqualified spellings had no viable candidate to bind to.
+  //
+  // Worth knowing when reproducing: the three below and the `min` are diagnosed
+  // at parse time, but `clamp`'s arguments are type-dependent, so that one is
+  // only diagnosed when step<T> is instantiated. A build that dies on the
+  // parse-time errors never reaches it, so fixing only what the first error log
+  // names leaves the file still broken.
+  //
+  // This is unrelated to the mixed-precision work this branch carries, and is a
+  // candidate to submit upstream to EinsteinToolkit/SpacetimeX on its own.
+  const std::array<CCTK_INT, nvars> varinds{
       gxx_ind, gxy_ind, gxz_ind, gyy_ind, gyz_ind, gzz_ind, //
       gxx_ind, gxy_ind, gxz_ind, gyy_ind, gyz_ind, gzz_ind, //
       gxx_ind, gxy_ind, gxz_ind, gyy_ind, gyz_ind, gzz_ind, //
       gxx_ind, gxy_ind, gxz_ind, gyy_ind, gyz_ind, gzz_ind, //
       kxx_ind, kxy_ind, kxz_ind, kyy_ind, kyz_ind, kzz_ind, //
   };
-  const array<CCTK_INT, nvars> operations{
+  const std::array<CCTK_INT, nvars> operations{
       0, 0, 0, 0, 0, 0, //
       1, 1, 1, 1, 1, 1, //
       2, 2, 2, 2, 2, 2, //
@@ -219,7 +237,7 @@ metric_t<T> interpolate_metric(const cGH *const cctkGH,
 
   const geom_t &geom = coords.geom;
   metric_t<T> metric(geom);
-  array<T *, nvars> ptrs{
+  std::array<T *, nvars> ptrs{
       metric.g(0, 0)().data(),     metric.g(0, 1)().data(),
       metric.g(0, 2)().data(),     metric.g(1, 1)().data(),
       metric.g(1, 2)().data(),     metric.g(2, 2)().data(),
@@ -603,7 +621,10 @@ step(const cGH *const cctkGH, const vec3<T> &pos, const T &radius,
 
   // Limit step size to 10% of the current radius
   const T h00 = real(hlm()(0, 0));
-  delta_hlm()(0, 0) = clamp(real(delta_hlm()(0, 0)), -0.1 * h00, 0.1 * h00);
+  // BUILD FIX (see the note in interpolate_metric): `clamp` was unqualified.
+  // This is the site that is only diagnosed at instantiation of step<T>.
+  delta_hlm()(0, 0) =
+      std::clamp(real(delta_hlm()(0, 0)), -0.1 * h00, 0.1 * h00);
 
   return delta_hlm;
 }
@@ -631,7 +652,11 @@ void solve(const cGH *const cctkGH, vec3<T> &pos, T &radius,
                maximum(hij));
     if (0) {
       const int lmax = hlm.geom.lmax;
-      for (int l = 0; l <= min(4, lmax); ++l) {
+      // BUILD FIX (see the note in interpolate_metric): qualified as std::min
+      // because the `using std::min` below is inside the loop body, so it does
+      // not cover the loop condition. The equivalent loop further down hoists
+      // that same using-declaration above the loop, which is the intended form.
+      for (int l = 0; l <= std::min(4, lmax); ++l) {
         using std::abs, std::max, std::min;
         T r = 0.0, rmin = 1.0 / 0.0, rmax = -1.0 / 0.0;
         for (int m = -l; m <= +l; ++m) {
